@@ -9,10 +9,11 @@ import (
 
 // Loads MDID dataset from directory, performs metrics and writes output.
 func main() {
+	datasetDir := "dataset/MDID"
 	// Load dataset from diretory.
-	dataset, error := LoadMDID("dataset/MDID")
-	if error != nil {
-		log.Fatalf("Error loading MDID dataset: %v\n", error)
+	dataset, err := LoadMDID(datasetDir)
+	if err != nil {
+		log.Fatalf("Loading MDID dataset from \"%s\" error: %v\n", datasetDir, err)
 	}
 
 	//TODO Compute metrics.
