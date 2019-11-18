@@ -4,8 +4,10 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
+	"math"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -27,6 +29,12 @@ func LoadMDID(path string) (Dataset, error) {
 	refRegexp, err := regexp.Compile(`^img\d{2}`)
 	if err != nil {
 		return nil, fmt.Errorf("reference from distortion regexp compile error: %w", err)
+	}
+
+	metricsDir := filepath.Join(path, "metrics_results")
+	metricsFiles, err := ioutil.ReadDir(metricsDir)
+	if err != nil {
+		log.Printf("reading distorted images direcory error: %v", err)
 	}
 
 	dataset := make(Dataset, 0, len(referenceFiles))
@@ -77,8 +85,87 @@ func LoadMDID(path string) (Dataset, error) {
 			continue
 		}
 
-		distorted := Distortion{Path: filepath.Join(distortionsDir, fi.Name())}
+		distorted := Distortion{
+			Path:            filepath.Join(distortionsDir, fi.Name()),
+			ProvidedMetrics: make(Metrics, len(metricsFiles)),
+		}
 		dataset[refIndex].Distorted = append(dataset[refIndex].Distorted, distorted)
+	}
+	for _, fi := range metricsFiles {
+		if fi.IsDir() {
+			log.Printf("\tis dir %s", fi.Name())
+			continue
+		}
+
+		if strings.ToLower(filepath.Ext(fi.Name())) != ".txt" {
+			log.Printf("\tno .txt file %s", fi.Name())
+			continue
+		}
+
+		metricsName := strings.TrimSuffix(fi.Name(), filepath.Ext(fi.Name()))
+
+		metricsFilePath := filepath.Join(metricsDir, fi.Name())
+		content, err := ioutil.ReadFile(metricsFilePath)
+		if err != nil {
+			log.Printf("\treading metrics file error: %v", err)
+			continue
+		}
+
+		lines := strings.Split(string(content), "\r\n")
+
+		for i, line := range lines {
+			if line == "" {
+				break
+			}
+
+			value, err := strconv.ParseFloat(line, 64)
+			if err != nil {
+				log.Printf("\tconverting %s metrics value %s to float64 error: %v", metricsName, line, err)
+				value = math.NaN()
+			}
+			ri, di := i/len(dataset[0].Distorted), i%len(dataset[0].Distorted)
+			dataset[ri].Distorted[di].ProvidedMetrics[metricsName] = value
+		}
+	}
+
+	mosFileContent, err := ioutil.ReadFile(filepath.Join(path, "mos.txt"))
+	if err != nil {
+		log.Printf("\treading mos metrics file error: %v", err)
+	} else {
+		metricsName := "mos"
+		lines := strings.Split(string(mosFileContent), "\r\n")
+		for i, line := range lines {
+			if line == "" {
+				break
+			}
+			value, err := strconv.ParseFloat(line, 64)
+			if err != nil {
+				log.Printf("\tconverting %s metrics value %s to float64 error: %v", metricsName, line, err)
+				value = math.NaN()
+			}
+			ri, di := i/len(dataset[0].Distorted), i%len(dataset[0].Distorted)
+			dataset[ri].Distorted[di].ProvidedMetrics[metricsName] = value
+		}
+	}
+
+	mosStdFileContent, err := ioutil.ReadFile(filepath.Join(path, "mos.txt"))
+	if err != nil {
+		log.Printf("\treading mos metrics file error: %v", err)
+	} else {
+		metricsName := "mos_std"
+		lines := strings.Split(string(mosStdFileContent), "\r\n")
+		for i, line := range lines {
+			if line == "" {
+				break
+			}
+			value, err := strconv.ParseFloat(line, 64)
+			if err != nil {
+				log.Printf("\tconverting %s metrics value %s to float64 error: %v", metricsName, line, err)
+				value = math.NaN()
+			}
+			ri, di := i/len(dataset[0].Distorted), i%len(dataset[0].Distorted)
+			dataset[ri].Distorted[di].ProvidedMetrics[metricsName] = value
+		}
 	}
 	return dataset, nil
 }
