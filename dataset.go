@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"math"
 	"path/filepath"
 	"strings"
 )
@@ -15,6 +16,20 @@ func (d Dataset) String() string {
 		strs = append(strs, fmt.Sprintf("%2d. %v", i+1, ref))
 	}
 	return strings.Join(strs, "\n")
+}
+
+func (d Dataset) ProvidedMetricsByName(metricsName string) []float64 {
+	res := []float64{}
+	for _, ref := range d {
+		for _, dis := range ref.Distorted {
+			val := math.NaN()
+			if m, ok := dis.ProvidedMetrics[metricsName]; ok {
+				val = m
+			}
+			res = append(res, val)
+		}
+	}
+	return res
 }
 
 // Reference type holds path to reference image and more distorted images with their metrics.

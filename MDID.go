@@ -148,7 +148,7 @@ func LoadMDID(path string) (Dataset, error) {
 		}
 	}
 
-	mosStdFileContent, err := ioutil.ReadFile(filepath.Join(path, "mos.txt"))
+	mosStdFileContent, err := ioutil.ReadFile(filepath.Join(path, "mos_std.txt"))
 	if err != nil {
 		log.Printf("\treading mos metrics file error: %v", err)
 	} else {
