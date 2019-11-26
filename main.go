@@ -5,6 +5,10 @@ import (
 	"log"
 	"math"
 	"sort"
+
+	"github.com/dgryski/go-onlinestats"
+	statistics "github.com/mcgrew/gostats"
+	"gonum.org/v1/gonum/stat"
 )
 
 // MDID dataset (https://www.sz.tsinghua.edu.cn/labs/vipl/mdid.html) image similarity metrics, rewritten to go (golang)
@@ -23,14 +27,21 @@ func main() {
 	// Print dataset evaluations
 	//fmt.Printf("%v\n", dataset)
 	evaluators := map[string]func([]float64, []float64) float64{
-		"SROCC": SROCC,
-		"KROCC": KROCC,
-		"PLCC":  PLCC,
-		"RMSE":  RMSE,
+		"SROCC":   SROCC,
+		"SROCCos": SROCConlinestats,
+		"SROCCgs": SROCCgostats,
+		"KROCC":   KROCC,
+		"KROCCgs": KROCCgostats,
+		"PLCC":    PLCC,
+		"PLCCgn":  PLCCgonum,
+		"PLCCgs":  PLCCgostats,
+		"RMSE":    RMSE,
 	}
 
-	evaluatorsList := []string{"SROCC", "KROCC", "PLCC", "RMSE"}
+	evaluatorsList := []string{"SROCC", "SROCCos", "SROCCgs", "KROCC", "KROCCgs", "PLCC", "PLCCgn", "PLCCgs", "RMSE"}
 	providedMetricsList := []string{"PSNR", "SSIM", "VIF", "IWSSIM", "FSIMc", "GMSD"}
+	fmt.Println("Comparing MDID MOS to provided metrics (pm) rankings using different evaluators (ev):")
+	fmt.Println()
 	fmt.Printf("%10s", "pm\\ev")
 	for _, em := range evaluatorsList {
 		fmt.Printf("%10s", em)
@@ -42,7 +53,7 @@ func main() {
 		fmt.Printf("%10s", pm)
 		m := dataset.ProvidedMetricsByName(pm)
 		for _, em := range evaluatorsList {
-			fmt.Printf("%10f", evaluators[em](mos, m))
+			fmt.Printf("%10f", math.Abs(evaluators[em](mos, m)))
 		}
 		fmt.Println()
 	}
@@ -67,7 +78,7 @@ func discordantPair(x1, y1, x2, y2 float64) bool {
 	return sgn(x2-x1) == -1*sgn(y2-y1)
 }
 
-// KROCC returns Kendall’s rank order correlation coefficient of inputs a, b
+// KROCC returns Kendall’s rank order correlation coefficient of inputs a, b.
 func KROCC(a, b []float64) float64 {
 	if len(a) != len(b) {
 		panic("Unexpected input lenghts")
@@ -84,24 +95,47 @@ func KROCC(a, b []float64) float64 {
 			}
 		}
 	}
-	return math.Abs(float64(cn-dn) / (0.5 * float64(n*(n-1))))
+	return float64(cn-dn) / (0.5 * float64(n*(n-1)))
+}
+
+// KROCCgostats returns Kendall’s rank order correlation coefficient of inputs a, b using gostats implementation.
+func KROCCgostats(a, b []float64) float64 {
+	ca, cb := make([]float64, len(a)), make([]float64, len(b))
+	copy(ca, a)
+	copy(cb, b)
+	return statistics.KendallCorrelation(ca, cb)
 }
 
 // SROCC returns Spearman’s rank order correlation coefficient of inputs a, b
+// using: https://www.groundai.com/project/empirical-evaluation-of-full-reference-image-quality-metrics-on-mdid-database/1
 func SROCC(a, b []float64) float64 {
 	if len(a) != len(b) {
 		panic("Unexpected input lenghts")
 	}
 
 	mrA, mrB := Quantile(a, 0.5), Quantile(b, 0.5)
-	sumNum, sumDenA, sumDenB := 0.0, 0.0, 0.0
+	cenMulSum, mrdASum, mrdBSum := 0.0, 0.0, 0.0
 	for i := range a {
 		cA, cB := a[i]-mrA, b[i]-mrB
-		sumNum += (cA) * (cB)
-		sumDenA += cA * cA
-		sumDenB += cB * cB
+		cenMulSum += (cA) * (cB)
+		mrdASum += cA * cA
+		mrdBSum += cB * cB
 	}
-	return math.Abs(sumNum / (math.Sqrt(sumDenA) * math.Sqrt(sumDenB)))
+	return cenMulSum / (math.Sqrt(mrdASum) * math.Sqrt(mrdBSum))
+}
+
+// SROCConlinestats returns Spearman’s rank order correlation coefficient of inputs a, b using go-onlinestats implementation
+func SROCConlinestats(a, b []float64) float64 {
+	sr, _ := onlinestats.Spearman(a, b)
+	return sr
+}
+
+// SROCCgostats returns Spearman’s rank order correlation coefficient of inputs a, b using gostats implementation
+func SROCCgostats(a, b []float64) float64 {
+	ca, cb := make([]float64, len(a)), make([]float64, len(b))
+	copy(ca, a)
+	copy(cb, b)
+	return statistics.SpearmanCorrelation(ca, cb)
 }
 
 // PLCC returns Pearson’s linear correlation coefficient of inputs a, b
@@ -111,27 +145,41 @@ func PLCC(a, b []float64) float64 {
 	}
 
 	avgA, avgB := MeanA(a), MeanA(b)
-	sumNum, sumDenA, sumDenB := 0.0, 0.0, 0.0
+	cenMulSum, stdASum, stdBSum := 0.0, 0.0, 0.0
 	for i := range a {
 		cA, cB := a[i]-avgA, b[i]-avgB
-		sumNum += (cA) * (cB)
-		sumDenA += cA * cA
-		sumDenB += cB * cB
+		cenMulSum += (cA) * (cB)
+		stdASum += cA * cA
+		stdBSum += cB * cB
 	}
-	return math.Abs(sumNum / (math.Sqrt(sumDenA) * math.Sqrt(sumDenB)))
+	return cenMulSum / (math.Sqrt(stdASum) * math.Sqrt(stdBSum))
 }
 
-// RMSE returns root mean square error.
+// PLCCgonum returns Pearson’s linear correlation coefficient of inputs a, b using gonum implementation
+func PLCCgonum(a, b []float64) float64 {
+	return stat.Correlation(a, b, nil)
+}
+
+// PLCCgostats returns Pearson’s linear correlation coefficient of inputs a, b using gostats implementation
+func PLCCgostats(a, b []float64) float64 {
+	return statistics.PearsonCorrelation(a, b)
+}
+
+// RMSE returns root mean square error of inputs a, b which are centered around avgerage and normalized/divaded by standart deviation.
 func RMSE(a, b []float64) float64 {
 	if len(a) != len(b) {
 		panic("Unexpected input lenghts")
 	}
 
-	sum := 0.0
+	avgA, sdA := meanSd(a)
+	avgB, sdB := meanSd(a)
+
+	errSqrSum := 0.0
 	for i := range a {
-		sum += (b[i] - a[i]) * (b[i] - a[i])
+		cnA, cnB := (a[i]-avgA)/sdA, (b[i]-avgB)/sdB
+		errSqrSum += (cnB - cnA) * (cnB - cnA)
 	}
-	return math.Sqrt(sum / float64(len(a)))
+	return math.Sqrt(errSqrSum / float64(len(a)))
 }
 
 // NRMSE_Sd returns root mean square error normalized/divided by standart deviation of a.
@@ -154,8 +202,7 @@ func NRMSE_Iq(a, b []float64) float64 {
 	return RMSE(a, b) / (Quantile(a, 0.75) - Quantile(a, 0.25))
 }
 
-// Sd returns the standart deviation
-func Sd(a []float64) float64 {
+func meanSd(a []float64) (float64, float64) {
 	mean := MeanA(a)
 
 	sd := 0.0
@@ -163,6 +210,12 @@ func Sd(a []float64) float64 {
 		sd += (v - mean) * (v - mean)
 	}
 	sd = math.Sqrt(sd)
+	return mean, sd
+}
+
+// Sd returns the standart deviation
+func Sd(a []float64) float64 {
+	_, sd := meanSd(a)
 	return sd
 }
 
@@ -216,19 +269,20 @@ func Min(a []float64) float64 {
 
 // Quantile returns the q quantile from a.
 func Quantile(a []float64, q float64) float64 {
-	sorted := make([]float64, len(a))
-	copy(sorted, a)
-	if !sort.Float64sAreSorted(sorted) {
+	if !sort.Float64sAreSorted(a) {
+		sorted := make([]float64, len(a))
+		copy(sorted, a)
 		sort.Float64s(sorted)
+		a = sorted
 	}
 
-	ifl := q * float64(len(sorted)-1)
+	ifl := q * float64(len(a)-1)
 	i, d := int(ifl), ifl-float64(int(ifl))
 
-	if i == len(sorted)-1 {
-		return sorted[i]
+	if i == len(a)-1 {
+		return a[i]
 	}
 
-	return (1-d)*sorted[i] + d*sorted[i+1]
+	return (1-d)*a[i] + d*a[i+1]
 
 }
