@@ -38,7 +38,7 @@ func main() {
 		"RMSE":    RMSE,
 	}
 
-	evaluatorsList := []string{"SROCC", "SROCCos", "SROCCgs", "KROCC", "KROCCgs", "PLCC", "PLCCgn", "PLCCgs", "RMSE"}
+	evaluatorsList := []string{"SROCC", "KROCC", "PLCC", "RMSE"}
 	providedMetricsList := []string{"PSNR", "SSIM", "VIF", "IWSSIM", "FSIMc", "GMSD"}
 	fmt.Println("Comparing MDID MOS to provided metrics (pm) rankings using different evaluators (ev):")
 	fmt.Println()
@@ -58,6 +58,12 @@ func main() {
 		fmt.Println()
 	}
 
+	//s := []float64{0.1, 0.2, 0.2, 0.3, 0.4, 0.4, 0.4, 0.7}
+	//fmt.Printf("Ranking %v [StandartCompetition]: %v\n", s, Rank(s, StandartCompetition))
+	//fmt.Printf("Ranking %v [ModifiedCompetition]: %v\n", s, Rank(s, ModifiedCompetition))
+	//fmt.Printf("Ranking %v [Ordinal]            : %v\n", s, Rank(s, Ordinal))
+	//fmt.Printf("Ranking %v [Dense]              : %v\n", s, Rank(s, Dense))
+	//fmt.Printf("Ranking %v [Fractional]         : %v\n", s, Rank(s, Fractional))
 }
 
 func sgn(a float64) int {
@@ -79,23 +85,36 @@ func discordantPair(x1, y1, x2, y2 float64) bool {
 }
 
 // KROCC returns Kendall’s rank order correlation coefficient of inputs a, b.
+// Using: https://web.archive.org/web/20181008171919/https://docs.scipy.org/doc/scipy/reference/generated/scipy.stats.kendalltau.html
 func KROCC(a, b []float64) float64 {
 	if len(a) != len(b) {
 		panic("Unexpected input lenghts")
 	}
 
-	n, cn, dn := len(a), 0, 0
-	for i := 0; i < len(a); i++ {
-		for j := i + 1; j < len(a); j++ {
-			if concordantPair(a[i], b[i], a[j], b[j]) {
-				cn++
-			}
-			if discordantPair(a[i], b[i], a[j], b[j]) {
-				dn++
+	ra, rb := Rank(a, Fractional), Rank(b, Fractional)
+
+	cn, dn, tan, tbn := 0, 0, 0, 0
+	for i := 0; i < len(ra); i++ {
+		for j := i + 1; j < len(ra); j++ {
+			da, db := ra[j]-ra[i], rb[j]-rb[i]
+			if da == 0 || db == 0 {
+				if da != db {
+					if da == 0 {
+						tan++
+					} else {
+						tbn++
+					}
+				}
+			} else {
+				if concordantPair(ra[i], rb[i], ra[j], rb[j]) {
+					cn++
+				} else if discordantPair(ra[i], rb[i], ra[j], rb[j]) {
+					dn++
+				}
 			}
 		}
 	}
-	return float64(cn-dn) / (0.5 * float64(n*(n-1)))
+	return float64(cn-dn) / math.Sqrt(float64((cn+dn+tan)*(cn+dn+tbn)))
 }
 
 // KROCCgostats returns Kendall’s rank order correlation coefficient of inputs a, b using gostats implementation.
@@ -107,21 +126,13 @@ func KROCCgostats(a, b []float64) float64 {
 }
 
 // SROCC returns Spearman’s rank order correlation coefficient of inputs a, b
-// using: https://www.groundai.com/project/empirical-evaluation-of-full-reference-image-quality-metrics-on-mdid-database/1
+// Using: https://en.wikipedia.org/wiki/Spearman%27s_rank_correlation_coefficient#Definition_and_calculation
 func SROCC(a, b []float64) float64 {
 	if len(a) != len(b) {
 		panic("Unexpected input lenghts")
 	}
 
-	mrA, mrB := Quantile(a, 0.5), Quantile(b, 0.5)
-	cenMulSum, mrdASum, mrdBSum := 0.0, 0.0, 0.0
-	for i := range a {
-		cA, cB := a[i]-mrA, b[i]-mrB
-		cenMulSum += (cA) * (cB)
-		mrdASum += cA * cA
-		mrdBSum += cB * cB
-	}
-	return cenMulSum / (math.Sqrt(mrdASum) * math.Sqrt(mrdBSum))
+	return PLCC(Rank(a, Fractional), Rank(b, Fractional))
 }
 
 // SROCConlinestats returns Spearman’s rank order correlation coefficient of inputs a, b using go-onlinestats implementation
@@ -139,6 +150,7 @@ func SROCCgostats(a, b []float64) float64 {
 }
 
 // PLCC returns Pearson’s linear correlation coefficient of inputs a, b
+// Using: https://en.wikipedia.org/wiki/Pearson_correlation_coefficient#For_a_sample
 func PLCC(a, b []float64) float64 {
 	if len(a) != len(b) {
 		panic("Unexpected input lenghts")
@@ -269,20 +281,98 @@ func Min(a []float64) float64 {
 
 // Quantile returns the q quantile from a.
 func Quantile(a []float64, q float64) float64 {
+	s := a
 	if !sort.Float64sAreSorted(a) {
-		sorted := make([]float64, len(a))
-		copy(sorted, a)
-		sort.Float64s(sorted)
-		a = sorted
+		s = make([]float64, len(a))
+		copy(s, a)
+		sort.Float64s(s)
 	}
 
-	ifl := q * float64(len(a)-1)
+	ifl := q * float64(len(s)-1)
 	i, d := int(ifl), ifl-float64(int(ifl))
 
-	if i == len(a)-1 {
-		return a[i]
+	if i == len(s)-1 {
+		return s[i]
 	}
 
-	return (1-d)*a[i] + d*a[i+1]
+	return (1-d)*s[i] + d*s[i+1]
 
+}
+
+type RankingMetod int
+
+const (
+	StandartCompetition RankingMetod = iota // 1224
+	ModifiedCompetition                     // 1334
+	Dense                                   // 1223
+	Ordinal                                 // 1234 (if equal, first in input position, first in ranking)
+	Fractional                              // 1 2.5 2.5 4
+)
+
+// Rank returns ranks for input a
+func Rank(a []float64, m RankingMetod) []float64 {
+	rs := make([]struct {
+		v float64
+		i int
+	}, len(a))
+	for i, v := range a {
+		rs[i].v, rs[i].i = v, i
+	}
+	sort.SliceStable(rs, func(i, j int) bool {
+		return rs[i].v < rs[j].v
+	})
+
+	res := make([]float64, len(a))
+	switch m {
+	case StandartCompetition:
+		for i := range rs {
+			if i-1 < 0 || rs[i].v != rs[i-1].v {
+				res[rs[i].i] = float64(i + 1)
+			} else {
+				res[rs[i].i] = res[rs[i-1].i]
+			}
+		}
+	case ModifiedCompetition:
+		for i := len(rs) - 1; i >= 0; i-- {
+			if i+1 >= len(rs) || rs[i].v != rs[i+1].v {
+				res[rs[i].i] = float64(i + 1)
+			} else {
+				res[rs[i].i] = res[rs[i+1].i]
+			}
+		}
+	case Dense:
+		cr := 1
+		for i := range rs {
+			res[rs[i].i] = float64(cr)
+			if i+1 < len(rs) && rs[i].v != rs[i+1].v {
+				cr++
+			}
+		}
+	case Fractional:
+		ef, efi := false, 0
+		for i := range rs {
+			if ef {
+				if i+1 >= len(rs) || rs[i].v != rs[i+1].v {
+					v := float64((i-efi+1)*(i+1+efi+1)/2) / float64(i-efi+1)
+					for j := efi; j <= i; j++ {
+						res[rs[j].i] = float64(v)
+					}
+					ef, efi = false, 0
+				}
+			} else {
+				if i+1 < len(rs) && rs[i].v == rs[i+1].v {
+					ef, efi = true, i
+				} else {
+					res[rs[i].i] = float64(i + 1)
+				}
+			}
+		}
+	case Ordinal:
+		for i, r := range rs {
+			res[r.i] = float64(i + 1)
+		}
+	default:
+		panic("unknown ranking method")
+	}
+	return res
 }
