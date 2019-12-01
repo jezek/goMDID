@@ -88,6 +88,7 @@ func LoadMDID(path string) (Dataset, error) {
 		distorted := Distortion{
 			Path:            filepath.Join(distortionsDir, fi.Name()),
 			ProvidedMetrics: make(Metrics, len(metricsFiles)),
+			ComputedMetrics: make(Metrics),
 		}
 		dataset[refIndex].Distorted = append(dataset[refIndex].Distorted, distorted)
 	}

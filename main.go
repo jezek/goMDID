@@ -2,9 +2,13 @@ package main
 
 import (
 	"fmt"
+	"image"
 	"log"
 	"math"
+	"os"
 	"sort"
+
+	_ "golang.org/x/image/bmp"
 
 	"github.com/dgryski/go-onlinestats"
 	statistics "github.com/mcgrew/gostats"
@@ -22,9 +26,8 @@ func main() {
 		log.Fatalf("Loading MDID dataset from \"%s\" error: %v\n", datasetDir, err)
 	}
 
-	//TODO Compute metrics.
-
-	// Print dataset evaluations
+	dataset = dataset[:1]
+	// Print provided dataset evaluations.
 	//fmt.Printf("%v\n", dataset)
 	evaluators := map[string]func([]float64, []float64) float64{
 		"SROCC":   SROCC,
@@ -64,6 +67,73 @@ func main() {
 	//fmt.Printf("Ranking %v [Ordinal]            : %v\n", s, Rank(s, Ordinal))
 	//fmt.Printf("Ranking %v [Dense]              : %v\n", s, Rank(s, Dense))
 	//fmt.Printf("Ranking %v [Fractional]         : %v\n", s, Rank(s, Fractional))
+
+	// Compute metrics.
+	grayFromPath := func(filepath string) (*image.Gray, error) {
+		f, err := os.Open(filepath)
+		if err != nil {
+			return nil, err
+		}
+		defer f.Close()
+
+		img, _, err := image.Decode(f)
+		if err != nil {
+			return nil, err
+		}
+
+		grayImg := image.NewGray(img.Bounds())
+		for y := img.Bounds().Min.Y; y < img.Bounds().Max.Y; y++ {
+			for x := img.Bounds().Min.X; x < img.Bounds().Max.X; x++ {
+				grayImg.Set(x, y, img.At(x, y))
+			}
+		}
+		return grayImg, nil
+	}
+
+	metrics := map[string]func(image.Gray, image.Gray) float64{
+		"SSIM": SSIM,
+	}
+	computeMetricsList := []string{"SSIM"}
+	for _, ref := range dataset {
+		refImg, err := grayFromPath(ref.Path)
+		if err != nil {
+			log.Printf("Could not load image: %v", err)
+			continue
+		}
+
+		log.Printf("Reference: %v", ref.Path)
+
+		for _, dis := range ref.Distorted {
+			disImg, err := grayFromPath(dis.Path)
+			if err != nil {
+				log.Printf("Could not load image: %v", err)
+				continue
+			}
+
+			for _, m := range computeMetricsList {
+				dis.ComputedMetrics[m] = metrics[m](*refImg, *disImg)
+			}
+		}
+	}
+
+	// Print computed dataset evaluations.
+	fmt.Println()
+	fmt.Println("Comparing MDID MOS to computed metrics (cm) rankings using different evaluators (ev):")
+	fmt.Println()
+	fmt.Printf("%10s", "cm\\ev")
+	for _, em := range evaluatorsList {
+		fmt.Printf("%10s", em)
+	}
+	fmt.Println()
+
+	for _, cm := range computeMetricsList {
+		fmt.Printf("%10s", cm)
+		m := dataset.ComputedMetricsByName(cm)
+		for _, em := range evaluatorsList {
+			fmt.Printf("%10f", math.Abs(evaluators[em](mos, m)))
+		}
+		fmt.Println()
+	}
 }
 
 func sgn(a float64) int {
@@ -214,6 +284,14 @@ func NRMSE_Iq(a, b []float64) float64 {
 	return RMSE(a, b) / (Quantile(a, 0.75) - Quantile(a, 0.25))
 }
 
+// MeanA returns arithmetic mean (average) value of input.
+func MeanA(a []float64) float64 {
+	if len(a) == 0 {
+		return math.NaN()
+	}
+	return Sum(a) / float64(len(a))
+}
+
 func meanSd(a []float64) (float64, float64) {
 	mean := MeanA(a)
 
@@ -221,7 +299,7 @@ func meanSd(a []float64) (float64, float64) {
 	for _, v := range a {
 		sd += (v - mean) * (v - mean)
 	}
-	sd = math.Sqrt(sd)
+	sd = math.Sqrt(sd / float64(len(a)-1))
 	return mean, sd
 }
 
@@ -239,14 +317,6 @@ func Sum(a []float64) float64 {
 		sum += v
 	}
 	return sum
-}
-
-// MeanA returns arithmetic mean (average) value of input.
-func MeanA(a []float64) float64 {
-	if len(a) == 0 {
-		return math.NaN()
-	}
-	return Sum(a) / float64(len(a))
 }
 
 // Max returns maximum value from inputs.
@@ -375,4 +445,45 @@ func Rank(a []float64, m RankingMetod) []float64 {
 		panic("unknown ranking method")
 	}
 	return res
+}
+
+// Default SSIM constants.
+const (
+	L  = 255.0
+	K1 = 0.01
+	K2 = 0.03
+)
+
+// Calculated SSIM coeficients.
+var (
+	C1 = math.Pow((K1 * L), 2.0)
+	C2 = math.Pow((K2 * L), 2.0)
+)
+
+func SSIM(a, b image.Gray) float64 {
+	if !a.Bounds().Eq(b.Bounds()) {
+		panic("images dimensions not equal")
+	}
+
+	avgA, stdA, avgB, stdB, covAB := 0.0, 0.0, 0.0, 0.0, 0.0
+	for y := a.Bounds().Min.Y; y < a.Bounds().Max.Y; y++ {
+		for x := a.Bounds().Min.X; x < a.Bounds().Max.X; x++ {
+			avgA += float64(a.GrayAt(x, y).Y)
+			avgB += float64(b.GrayAt(x, y).Y)
+		}
+	}
+	n := float64(a.Bounds().Dx() * a.Bounds().Dy())
+	avgA, avgB = avgA/n, avgA/n
+	for y := a.Bounds().Min.Y; y < a.Bounds().Max.Y; y++ {
+		for x := a.Bounds().Min.X; x < a.Bounds().Max.X; x++ {
+			vA, vB := float64(a.GrayAt(x, y).Y), float64(b.GrayAt(x, y).Y)
+			stdA += (vA - avgA) * (vA - avgA)
+			stdB += (vB - avgB) * (vB - avgB)
+			covAB += (vA - avgA) * (vB - avgB)
+		}
+	}
+	stdA, stdB = math.Sqrt(stdA/(n-1)), math.Sqrt(stdB/(n-1))
+	covAB = covAB / (n - 1)
+
+	return (((2.0 * avgA * avgB) + C1) * ((2.0 * covAB) + C2)) / ((math.Pow(avgA, 2.0) + math.Pow(avgB, 2.0) + C1) * (math.Pow(stdA, 2.0) + math.Pow(stdB, 2.0) + C2))
 }

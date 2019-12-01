@@ -32,6 +32,20 @@ func (d Dataset) ProvidedMetricsByName(metricsName string) []float64 {
 	return res
 }
 
+func (d Dataset) ComputedMetricsByName(metricsName string) []float64 {
+	res := []float64{}
+	for _, ref := range d {
+		for _, dis := range ref.Distorted {
+			val := math.NaN()
+			if m, ok := dis.ComputedMetrics[metricsName]; ok {
+				val = m
+			}
+			res = append(res, val)
+		}
+	}
+	return res
+}
+
 // Reference type holds path to reference image and more distorted images with their metrics.
 type Reference struct {
 	Path      string
