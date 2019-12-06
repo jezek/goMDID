@@ -91,9 +91,11 @@ func main() {
 		"MSE":   MSErgb,
 		"PSNR":  PSNRrgb,
 		"SSIM":  SSIM,
+		"my":    compare,
+		"myg":   compareg,
 	}
 	fmt.Println()
-	computeMetricsList := []string{"PSNRg", "PSNR", "SSIM"}
+	computeMetricsList := []string{"PSNRg", "myg", "PSNR", "my", "SSIM"}
 	for _, ref := range dataset {
 		refImg, err := imageFromPath(ref.Path)
 		if err != nil {
@@ -154,4 +156,77 @@ func main() {
 		//fmt.Println(pm)
 		//fmt.Println(cm)
 	}
+}
+
+func mean(img *image.Gray) float64 {
+	return meanRect(img, img.Bounds())
+}
+
+func meanRect(img *image.Gray, rect image.Rectangle) float64 {
+	acc := uint(0)
+	for y := rect.Canon().Min.Y; y < rect.Canon().Max.Y; y++ {
+		for x := rect.Canon().Min.X; x < rect.Canon().Max.X; x++ {
+			acc += uint(img.GrayAt(x, y).Y)
+		}
+	}
+	ret := float64(acc) / float64(rect.Bounds().Dx()*rect.Bounds().Dy())
+	//fmt.Printf("mean %dx%d on %d,%d: %f\n", rect.Dx(), rect.Dy(), rect.Min.X, rect.Min.Y, ret)
+	return ret
+}
+
+var wasRect = map[image.Rectangle]bool{}
+
+// Returns 0 if identical, > 0 otherwise
+func compare(a, b image.Image) float64 {
+	if !a.Bounds().Eq(b.Bounds()) {
+		panic("images have to have equal bounds")
+	}
+	wasRect = map[image.Rectangle]bool{}
+	//log.Printf("ci")
+	aR, aG, aB := rgbExplodeToGray8(a)
+	bR, bG, bB := rgbExplodeToGray8(b)
+	cR, cG, cB := compareRectRecursive(aR, bR, a.Bounds()), compareRectRecursive(aG, bG, a.Bounds()), compareRectRecursive(aB, bB, a.Bounds())
+
+	return (cR + cG + cB) / 3
+}
+
+// Returns 0 if identical, > 0 otherwise
+func compareg(a, b image.Image) float64 {
+	if !a.Bounds().Eq(b.Bounds()) {
+		panic("images have to have equal bounds")
+	}
+	wasRect = map[image.Rectangle]bool{}
+	return compareRectRecursive(gray8(a), gray8(b), a.Bounds())
+}
+
+func compareRectRecursive(i1, i2 *image.Gray, rect image.Rectangle) float64 {
+	//log.Printf("cr %v", rect)
+	if rect.Dx()*rect.Dy() == 0 {
+		return 0
+	}
+	if wasRect[rect] {
+		return 0
+	}
+	wasRect[rect] = true
+	mi1, mi2 := meanRect(i1, rect), meanRect(i2, rect)
+
+	cm := (math.Abs(mi1-mi2) * math.Abs(mi1-mi2)) * math.Pow((float64(rect.Bounds().Dx()*rect.Bounds().Dy())/float64(i1.Bounds().Dx()*i1.Bounds().Dy())), 1)
+	//fmt.Printf("weighted mean %dx%d on %d,%d: %f\n", rect.Dx(), rect.Dy(), rect.Min.X, rect.Min.Y, cm)
+	if rect.Dx()*rect.Dy() == 1 {
+		return cm
+	}
+
+	max := func(a, b int) int {
+		if a > b {
+			return a
+		}
+		return b
+	}
+
+	return cm +
+		compareRectRecursive(i1, i2, image.Rectangle{rect.Min, image.Pt(rect.Min.X+max(1, (rect.Dx()/2)+(rect.Dx()%2)), rect.Min.Y+max(1, (rect.Dy()/2)+(rect.Dy()%2)))}) +
+		compareRectRecursive(i1, i2, image.Rectangle{image.Pt(rect.Max.X-max(1, rect.Dx()/2), rect.Min.Y), image.Pt(rect.Max.X, rect.Min.Y+max(1, (rect.Dy()/2)+(rect.Dy()%2)))}) +
+		compareRectRecursive(i1, i2, image.Rectangle{image.Pt(rect.Min.X, rect.Max.Y-max(1, rect.Dy()/2)), image.Pt(rect.Min.X+max(1, (rect.Dx()/2)+(rect.Dx()%2)), rect.Max.Y)}) +
+		compareRectRecursive(i1, i2, image.Rectangle{image.Pt(rect.Max.X-max(1, rect.Dx()/2), rect.Max.Y-max(1, rect.Dy()/2)), rect.Max})
+
 }
