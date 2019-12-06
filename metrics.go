@@ -4,8 +4,6 @@ import (
 	"image"
 	"image/color"
 	"math"
-
-	"gonum.org/v1/gonum/stat"
 )
 
 // Returns gray image using default go (luminance) method to convert from rgb.
@@ -45,7 +43,7 @@ func MSEGray(a, b *image.Gray) float64 {
 		values[i] = float64(int(b.GrayAt(x, y).Y) - int(a.GrayAt(x, y).Y)) // error
 		values[i] *= values[i]                                             // square error
 	}
-	return stat.Mean(values, nil) // mean square error
+	return MeanA(values) // mean square error
 }
 
 // Returns Mean-Squared Error of the two input color images, converting to gray images (using gray8(...)) and then computing MSEGray(...)
