@@ -28,5 +28,10 @@ Go third party dependencies:
 
 *) can be omitted, currently only used for comparison/verifying of self-implemented correlation methods.
 
+Known bugs:
+===========
+- SSIM incorrectly implemented.
+
+
 ### Sources
 1. [W. Sun, F. Zhou, Q. M. Liao. MDID: a multiply distorted image database for image quality assessment, Pattern Recognit. 61C (2017) pp. 153-168.](https://www.sz.tsinghua.edu.cn/labs/vipl/mdid.html)

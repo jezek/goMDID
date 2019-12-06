@@ -24,9 +24,6 @@ func main() {
 		log.Fatalf("Loading MDID dataset from \"%s\" error: %v\n", datasetDir, err)
 	}
 
-	dataset = dataset[:2]
-	dataset[0].Distorted = dataset[0].Distorted[:10]
-	dataset[1].Distorted = dataset[1].Distorted[:10]
 	// Print provided dataset evaluations.
 	//fmt.Printf("%v\n", dataset)
 	evaluators := map[string]func([]float64, []float64) float64{
@@ -61,13 +58,6 @@ func main() {
 		}
 		fmt.Println()
 	}
-
-	//s := []float64{0.1, 0.2, 0.2, 0.3, 0.4, 0.4, 0.4, 0.7}
-	//fmt.Printf("Ranking %v [StandartCompetition]: %v\n", s, Rank(s, StandartCompetition))
-	//fmt.Printf("Ranking %v [ModifiedCompetition]: %v\n", s, Rank(s, ModifiedCompetition))
-	//fmt.Printf("Ranking %v [Ordinal]            : %v\n", s, Rank(s, Ordinal))
-	//fmt.Printf("Ranking %v [Dense]              : %v\n", s, Rank(s, Dense))
-	//fmt.Printf("Ranking %v [Fractional]         : %v\n", s, Rank(s, Fractional))
 
 	// Compute metrics.
 	imageFromPath := func(filepath string) (image.Image, error) {
